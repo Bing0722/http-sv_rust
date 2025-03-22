@@ -2,6 +2,7 @@
 
 use thiserror::Error;
 
+/// 请求类型错误
 #[derive(Debug, Error)]
 pub enum RequestError {
     #[error("skip newline error")]
@@ -12,33 +13,32 @@ pub enum RequestError {
     InvalidVersion,
 }
 
+/// 响应类型错误
 #[derive(Debug, Error)]
 pub enum ResponseError {}
 
+/// 方法类型错误
 #[derive(Debug, Error)]
 pub enum HttpMethodError {
     #[error("invalid method")]
     InvalidMethod,
 }
 
+/// uri 类型错误
 #[derive(Debug, Error)]
 pub enum UriError {
     #[error("invalid uri")]
     InvalidUri,
 }
 
+/// 版本类型错误
 #[derive(Debug, Error)]
 pub enum HttpVersionError {
     #[error("invalid version")]
     InvalidVersion,
 }
 
-#[derive(Debug, Error)]
-pub enum HostError {
-    #[error("invalid host")]
-    InvalidHost,
-}
-
+/// 其他类型的错误
 #[derive(Debug, Error)]
 pub enum OtherError {
     #[error("parse space error")]

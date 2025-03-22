@@ -1,4 +1,4 @@
-#![allow(unused)]
+// #![allow(unused)]
 
 use std::{
     collections::HashMap,
@@ -7,14 +7,17 @@ use std::{
 };
 
 use nom::{
+    AsBytes,
     bytes::complete::{tag, take_until},
-    combinator::verify,
 };
-use request_util::{HttpRequest, HttpRequestHeader};
+
+use request_util::{HttpRequest, StartLine};
+
 use tracing::{info, trace};
 
 use crate::{
-    error::{HostError, HttpMethodError, HttpVersionError, OtherError, RequestError, UriError},
+    body::Body,
+    error::{HttpMethodError, HttpVersionError, OtherError, RequestError, UriError},
     utils::{HttpHeaders, HttpMethod, HttpVersion},
 };
 
@@ -23,7 +26,7 @@ mod request_util;
 
 const DELIMITER: &[u8] = b"\r\n\r\n";
 
-pub fn read_http_request(stream: &mut TcpStream) -> Result<HttpRequest<String>, RequestError> {
+pub fn read_http_request(stream: &mut TcpStream) -> Result<HttpRequest<Vec<u8>>, RequestError> {
     let mut buf = [0; 4096];
     let mut header_buf = Vec::new();
     loop {
@@ -38,19 +41,28 @@ pub fn read_http_request(stream: &mut TcpStream) -> Result<HttpRequest<String>, 
 
     // 切割 header 和 body
     // 解析空白行
-    let (body, headers_buf) = parse_blankline(&header_buf).unwrap();
+    let (body, headers_buf) = parse_blankline(header_buf.as_bytes()).unwrap();
 
-    println!("headers_buf: {:?}", String::from_utf8_lossy(headers_buf));
-    println!("body: {:?}", String::from_utf8_lossy(body));
+    info!("headers_buf: {:?}", String::from_utf8_lossy(headers_buf));
+    info!("body: {:?}", String::from_utf8_lossy(body));
 
-    let headers = parse_header(headers_buf).unwrap();
+    let (other, start_line) = parse_start_line(headers_buf)?;
 
-    let body = Some(String::from_utf8_lossy(body).to_string());
+    let headers = parse_header(other).unwrap();
 
-    Ok(HttpRequest { headers, body })
+    // let body = Some(String::from_utf8_lossy(body).to_string());
+    let body = parse_body(body)?;
+
+    info!("请求起始行: {}", start_line.to_string());
+
+    Ok(HttpRequest {
+        start_line,
+        headers,
+        body,
+    })
 }
 
-fn parse_header(input: &[u8]) -> Result<HttpRequestHeader, RequestError> {
+fn parse_start_line(input: &[u8]) -> Result<(&[u8], StartLine), RequestError> {
     // 解析方法
     let (other, method_bytes) = parse_method(input, b"GET").unwrap();
     let _method = String::from_utf8_lossy(method_bytes).to_string();
@@ -71,24 +83,17 @@ fn parse_header(input: &[u8]) -> Result<HttpRequestHeader, RequestError> {
         }
     };
 
-    // host
-    // let (other, host_bytes) = parse_host(other).unwrap();
-    // let host = String::from_utf8_lossy(host_bytes).to_string();
-
-    // header other
-    let headers = parse_header_other(other).unwrap();
-    let host = headers.0.get("Host").unwrap_or(&"".to_string()).clone();
-
-    Ok(HttpRequestHeader {
-        method,
-        path,
-        version,
-        host,
-        headers,
-    })
+    Ok((
+        other,
+        StartLine {
+            method,
+            path,
+            version,
+        },
+    ))
 }
 
-/// Parse the HTTP method from the request line.
+/// 解析方法
 /// ```
 /// const Header: &str = "GET / HTTP/1.1";
 /// let (other, method_bytes) = parse_method(&Header.as_bytes(), b"GET").unwrap();
@@ -120,7 +125,7 @@ fn parse_method<'a>(
     }
 }
 
-/// Parse the path from the input bytes.
+/// 解析路径
 /// ```
 /// // other: &[u8] = "/ HTTP/1.1"
 /// let (other, path) = parse_path(input).unwrap();
@@ -147,7 +152,7 @@ fn parse_path<'a>(input: &'a [u8]) -> Result<(&'a [u8], &'a [u8]), UriError> {
     }
 }
 
-/// Parse the HTTP version from the input bytes.
+/// 解析HTTP版本
 /// ```
 /// // other: &[u8] = "HTTP/1.1\r\n"
 /// let (other, version) = parse_version(input).unwrap();
@@ -175,40 +180,14 @@ fn parse_version<'a>(input: &'a [u8]) -> Result<(&'a [u8], &'a [u8]), HttpVersio
     }
 }
 
-/// Parse the host from the input bytes.
-/// ```
-/// // other: &[u8] = "Host: example.com\r\n";
-/// let (other, host) = parse_host(other).unwrap();
-/// let host = String::from_utf8_lossy(host);
-/// println!("Host: `{}`", host); // Host: `example.com`
-///
-/// ```
-fn _parse_host<'a>(input: &'a [u8]) -> Result<(&'a [u8], &'a [u8]), HostError> {
-    match tag("Host: ")(input) {
-        Ok((other, _)) => match parse_newline(other) {
-            Ok((other, host)) => {
-                trace!(
-                    "host: `{}`, other: `{}`",
-                    String::from_utf8_lossy(host),
-                    String::from_utf8_lossy(other)
-                );
-                Ok((other, host))
-            }
-            Err(_) => Err(HostError::InvalidHost),
-        },
-        Err(nom::Err::Error((_, nom::error::ErrorKind::TakeUntil))) => Err(HostError::InvalidHost),
-        _ => Err(HostError::InvalidHost),
-    }
-}
-
-/// Parse header other information
+/// 解析标头
 /// ```
 /// // other: &[u8] = "Content-Type: application/json\r\n";
 /// let (key_bytes, value_bytes) = parse_header_other(other).unwrap();
 /// println!("Key: `{}`", String::from_utf8_lossy(key_bytes)); // Key: `Content-Type`
 /// println!("Value: `{}`", String::from_utf8_lossy(value_bytes)); // Value: `application/json`
 /// ```
-fn parse_header_other<'a>(input: &'a [u8]) -> Result<HttpHeaders, RequestError> {
+fn parse_header(input: &[u8]) -> Result<HttpHeaders, RequestError> {
     let mut headers: HashMap<String, String> = HashMap::new();
     for line in input.lines() {
         match line {
@@ -274,7 +253,7 @@ fn parse_newline<'a>(input: &'a [u8]) -> Result<(&'a [u8], &'a [u8]), OtherError
 }
 
 // 解析空白行
-fn parse_blankline<'a>(input: &'a [u8]) -> Result<(&'a [u8], &'a [u8]), OtherError> {
+fn parse_blankline(input: &[u8]) -> Result<(&[u8], &[u8]), OtherError> {
     match take_until("\r\n\r\n")(input) {
         Ok((other, front)) => match tag("\r\n\r\n")(other) {
             Ok((other, _)) => Ok((other, front)),
@@ -288,4 +267,15 @@ fn parse_blankline<'a>(input: &'a [u8]) -> Result<(&'a [u8], &'a [u8]), OtherErr
         }
         _ => Err(OtherError::ParseBlanklineError),
     }
+}
+
+/// 解析body
+fn parse_body(input: &[u8]) -> Result<Body<Vec<u8>>, RequestError> {
+    let mut body: Body<Vec<u8>> = Body::new();
+    if input.is_empty() {
+        return Ok(body);
+    }
+    body.set_body(input.to_vec());
+
+    Ok(body)
 }

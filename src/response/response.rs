@@ -1,6 +1,7 @@
 use std::{io::Write, net::TcpStream};
 
 use nom::AsBytes;
+use tracing::info;
 
 use crate::error::ResponseError;
 
@@ -12,7 +13,7 @@ pub fn return_response(stream: &mut TcpStream) -> Result<HttpResponse<String>, R
 
     let buf: Vec<u8> = response.serialize();
 
-    println!("{}", String::from_utf8_lossy(buf.as_bytes()));
+    info!("{}", String::from_utf8_lossy(buf.as_bytes()));
 
     stream.write(buf.as_bytes()).unwrap();
     Ok(HttpResponse::<String>::new())
