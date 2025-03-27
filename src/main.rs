@@ -1,25 +1,30 @@
-use std::net::TcpStream;
+use std::net::TcpListener;
 
-use tracing::level_filters::LevelFilter;
-
-use http_sv::{request::read_http_request, response::return_response, server::serve};
-
-type Error = Box<dyn std::error::Error>;
+use http_sv::{Request, Router, headers::HttpMethod, response::Response, serve};
+use tracing::{info, level_filters::LevelFilter};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
+        .with_max_level(LevelFilter::INFO)
         .with_line_number(true)
-        .with_max_level(LevelFilter::TRACE)
         .init();
 
-    serve(service, "127.0.0.1:8080")?;
+    let listener = TcpListener::bind("127.0.0.1:8080")?;
+    info!("服务器启动.....");
+    info!("开始监听： {}", listener.local_addr()?);
+
+    let app = Router::new()
+        .route("/", HttpMethod::GET, "Hello, World!".to_string())
+        .route("/hello", "get", "Hello, This is a test".to_string())
+        .route("/post", "POST", hello)
+        .route("/", "POST", |_| "Hello, Rust");
+
+    serve(listener, app);
 
     Ok(())
 }
 
-fn service(stream: &mut TcpStream) -> Result<(), Error> {
-    read_http_request(stream).unwrap();
-    return_response(stream).unwrap();
-
-    Ok(())
+fn hello(req: Request) -> Response {
+    let _ = req;
+    Response::new().body("Hello, World".into())
 }

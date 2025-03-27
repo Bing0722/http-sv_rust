@@ -1,52 +1,30 @@
-#![allow(unused)]
+//! 错误
 
 use thiserror::Error;
 
-/// 请求类型错误
 #[derive(Debug, Error)]
-pub enum RequestError {
-    #[error("skip newline error")]
-    SkipNewLineError,
-    #[error("parse header error")]
-    ParseHeaderError,
-    #[error("invalid version")]
-    InvalidVersion,
+pub enum ParseError {
+    #[error("解析分隔符失败")]
+    ParseSeparatorErr,
+    #[error("解析新行失败")]
+    ParseNewlineErr,
+    #[error("解析空格失败")]
+    ParseSpaceErr,
+    #[error("解析键值对失败")]
+    ParseMapErr,
+    #[error("解析消耗失败")]
+    ParseConsumeErr,
 }
 
-/// 响应类型错误
 #[derive(Debug, Error)]
 pub enum ResponseError {}
 
-/// 方法类型错误
 #[derive(Debug, Error)]
-pub enum HttpMethodError {
-    #[error("invalid method")]
-    InvalidMethod,
-}
-
-/// uri 类型错误
-#[derive(Debug, Error)]
-pub enum UriError {
-    #[error("invalid uri")]
-    InvalidUri,
-}
-
-/// 版本类型错误
-#[derive(Debug, Error)]
-pub enum HttpVersionError {
-    #[error("invalid version")]
-    InvalidVersion,
-}
-
-/// 其他类型的错误
-#[derive(Debug, Error)]
-pub enum OtherError {
-    #[error("parse space error")]
-    ParseSpaceError,
-    #[error("parse newline error")]
-    ParseNewlineError,
-    #[error("parse map error")]
-    ParseMapError,
-    #[error("parse blankline error")]
-    ParseBlanklineError,
+pub enum RequestError {
+    #[error("读取请求失败")]
+    ReadRequestErr,
+    #[error("请求为空")]
+    EmptyRequest,
+    #[error("解析错误--> {0}")]
+    ParseError(#[from] ParseError),
 }
